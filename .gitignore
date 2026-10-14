@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+key_klfo/
+key_oneline.txt
+*.json
+.env
