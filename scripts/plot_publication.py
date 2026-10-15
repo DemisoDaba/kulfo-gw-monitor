@@ -191,15 +191,12 @@ ax3.legend(lines1 + lines2, labels1 + labels2,
            loc='upper right', fontsize=7.5)
 
 # ============================================================
-# 7. SAVE
+# 7. SAVE (PNG only — PDF removed)
 # ============================================================
 out_png = 'data/kulfo_gwsa_publication.png'
-out_pdf = 'data/kulfo_gwsa_publication.pdf'
 
 plt.tight_layout()
 plt.savefig(out_png, dpi=300, bbox_inches='tight', facecolor='white')
-plt.savefig(out_pdf, bbox_inches='tight', facecolor='white')
 plt.close()
 
 print(f"Saved: {out_png}")
-print(f"Saved: {out_pdf}")
