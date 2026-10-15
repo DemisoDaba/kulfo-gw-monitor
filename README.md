@@ -13,7 +13,6 @@ Columns:
 
 Publication figure:
 - [`data/kulfo_gwsa_publication.png`](data/kulfo_gwsa_publication.png) — 300 DPI raster
-- [`data/kulfo_gwsa_publication.pdf`](data/kulfo_gwsa_publication.pdf) — vector for journals
 
 ## How It Works
 
@@ -30,17 +29,10 @@ Publication figure:
 | Ridge (α=10) | 0.899 | 34.44 | 0.948 |
 | TNS (no PCA) | 0.340 | 89.65 | 0.714 |
 
-## Use the Data
-
-Download directly:
 
 ## Use the Data
 
-Download directly:
-https://raw.githubusercontent.com/DemisoDaba/kulfo-gw-monitor/main/data/kulfo_gwsa_forecasts.csv
-
-df = pd.read_csv(url, parse_dates=['date'])
-print(df.tail())
+Download directly: [data/kulfo_gwsa_forecasts.csv](https://raw.githubusercontent.com/DemisoDaba/kulfo-gw-monitor/main/data/kulfo_gwsa_forecasts.csv)
 
 ## Run It Yourself
 
