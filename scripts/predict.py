@@ -1,6 +1,6 @@
 """
 Monthly GWSA prediction for Kulfo watershed.
-Auto-detects the most recent month across all predictors, fills gaps with means.
+Runs Ridge AND TNS models. Auto-detects latest month. Mean-fills missing predictors.
 """
 
 import os
@@ -20,6 +20,8 @@ import pandas as pd
 import numpy as np
 import joblib
 import ee
+import torch
+import torch.nn as nn
 
 creds_json = os.environ.get('EARTHENGINE_TOKEN')
 if creds_json is None:
@@ -38,7 +40,7 @@ sys.stdout = _stdout
 sys.stderr = _stderr
 
 # ============================================================
-# 2. LOAD MODEL AND TRAINING DATA
+# 2. LOAD MODELS AND TRAINING DATA
 # ============================================================
 model    = joblib.load('models/kulfo_ridge_model.pkl')
 pca      = joblib.load('models/kulfo_pca.pkl')
@@ -49,6 +51,26 @@ train = pd.read_csv('data/kulfo_training_data.csv')
 train['date'] = pd.to_datetime(train['date'])
 train = train.sort_values('date').reset_index(drop=True)
 
+# TNS architecture
+class TinyTNS(nn.Module):
+    def __init__(self, n_features, channels=16):
+        super().__init__()
+        self.conv1 = nn.Conv1d(n_features, channels, 3, padding=1, dilation=1)
+        self.conv2 = nn.Conv1d(channels, channels, 3, padding=2, dilation=2)
+        self.dropout = nn.Dropout(0.3)
+        self.head = nn.Linear(channels, 1)
+
+    def forward(self, x):
+        x = x.permute(0, 2, 1)
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = self.dropout(x[:, :, -1])
+        return self.head(x)
+
+tns_model = TinyTNS(n_features=len(features))
+tns_model.load_state_dict(torch.load('models/kulfo_tns_model.pt', map_location='cpu'))
+tns_model.eval()
+
 # ============================================================
 # 3. AUTO-DETECT MOST RECENT AVAILABLE MONTH
 # ============================================================
@@ -56,11 +78,9 @@ kulfo = ee.FeatureCollection('projects/gothic-doodad-356708/assets/kulfo')
 geom = kulfo.geometry()
 
 def latest_available_month(collection, band_name):
-    """Return the last complete month available in the collection."""
     latest = collection.select(band_name).limit(1, 'system:time_start', False).first()
     ts = latest.get('system:time_start').getInfo()
     end_date = pd.Timestamp(ts, unit='ms', tz='UTC').tz_localize(None)
-    # Go back one month to ensure the full month is covered
     return (end_date.replace(day=1) - pd.DateOffset(months=1)).replace(day=1)
 
 chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
@@ -77,8 +97,7 @@ candidates = [
 ]
 
 START = pd.Timestamp('2018-01-01')
-END = max(candidates)   # ← use the most recent across all sources
-
+END = max(candidates)
 months = pd.date_range(START, END, freq='MS')
 
 # ============================================================
@@ -133,7 +152,7 @@ env = rain_df.merge(temp_df, on='date') \
              .merge(sm_df, on='date')
 
 # ============================================================
-# 5. BUILD FEATURE TABLE (mean-fill for missing predictors)
+# 5. BUILD FEATURE TABLE
 # ============================================================
 gwsa_history = train[['date', 'GWSA']].copy()
 rows = []
@@ -144,7 +163,6 @@ col_means = {c: env[c].mean() for c in predictor_cols}
 for _, row in env.iterrows():
     d = row['date']
 
-    # Fill missing predictors with column means
     for c in predictor_cols:
         if pd.isna(row[c]):
             row[c] = col_means[c]
@@ -189,7 +207,7 @@ if len(feature_df) == 0:
     exit(1)
 
 # ============================================================
-# 6. PREDICT
+# 6. RIDGE PREDICTION
 # ============================================================
 X = feature_df[features].values
 X_scaled = scaler.transform(X)
@@ -197,9 +215,28 @@ X_pca = pca.transform(X_scaled)
 feature_df['GWSA_predicted_mm'] = model.predict(X_pca)
 
 # ============================================================
-# 7. SAVE
+# 7. TNS PREDICTION
+# ============================================================
+LOOKBACK = 3
+
+X_seq = []
+for i in range(len(X_scaled) - LOOKBACK):
+    X_seq.append(X_scaled[i:i+LOOKBACK])
+X_seq = np.array(X_seq, dtype=np.float32)
+
+feature_df['TNS_predicted_mm'] = np.nan
+
+if len(X_seq) > 0:
+    with torch.no_grad():
+        tns_preds = tns_model(torch.tensor(X_seq)).numpy().flatten()
+
+    tns_dates = feature_df['date'].iloc[LOOKBACK:].values
+    feature_df.loc[feature_df['date'].isin(tns_dates), 'TNS_predicted_mm'] = tns_preds
+
+# ============================================================
+# 8. SAVE
 # ============================================================
 out_path = 'data/kulfo_gwsa_forecasts.csv'
-feature_df[['date', 'GWSA_predicted_mm']].to_csv(out_path, index=False)
+feature_df[['date', 'GWSA_predicted_mm', 'TNS_predicted_mm']].to_csv(out_path, index=False)
 
 print(f"Saved {len(feature_df)} predictions to {out_path}")
