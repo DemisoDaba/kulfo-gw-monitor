@@ -7,9 +7,10 @@ Panel (c): Model comparison bar chart
 
 import pandas as pd
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')   # non-interactive backend — required for GitHub Actions
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
-from sklearn.metrics import r2_score, mean_squared_error
 
 # ============================================================
 # 1. LOAD DATA
@@ -20,16 +21,18 @@ forecasts = forecasts.sort_values('date').reset_index(drop=True)
 train = pd.read_csv('data/kulfo_training_data.csv', parse_dates=['date'])
 train = train.sort_values('date').reset_index(drop=True)
 
-# Model metrics
-RIDGE_R2   = 0.890
-RIDGE_RMSE = 36.41
-RIDGE_CORR = 0.944
-TNS_R2     = 0.334
-TNS_RMSE   = 88.43
-TNS_CORR   = 0.696
+# ============================================================
+# 2. MODEL METRICS (from latest training run)
+# ============================================================
+RIDGE_R2   = 0.899
+RIDGE_RMSE = 34.44
+RIDGE_CORR = 0.948
+TNS_R2     = 0.340
+TNS_RMSE   = 89.65
+TNS_CORR   = 0.714
 
 # ============================================================
-# 2. SETUP FIGURE
+# 3. SETUP FIGURE
 # ============================================================
 plt.rcParams.update({
     'font.family': 'sans-serif',
@@ -52,42 +55,36 @@ ax2 = fig.add_subplot(gs[1, 0])
 ax3 = fig.add_subplot(gs[1, 1])
 
 # Okabe-Ito colourblind-friendly palette
-C_OBS   = '#0072B2'   # blue    — observed
-C_RIDGE = '#D55E00'   # orange  — Ridge
-C_TNS   = '#009E73'   # green   — TNS
+C_OBS   = '#0072B2'   # blue
+C_RIDGE = '#D55E00'   # orange
+C_TNS   = '#009E73'   # green
 
 # ============================================================
-# 3. PANEL A — TIME SERIES WITH BOTH MODELS
+# 4. PANEL A — TIME SERIES WITH BOTH MODELS
 # ============================================================
-# Ridge ± RMSE band
 ax1.fill_between(forecasts['date'],
                  forecasts['GWSA_predicted_mm'] - RIDGE_RMSE,
                  forecasts['GWSA_predicted_mm'] + RIDGE_RMSE,
                  color=C_RIDGE, alpha=0.12, zorder=2,
                  label=f'Ridge ± RMSE ({RIDGE_RMSE:.1f} mm)')
 
-# Observed
 ax1.plot(train['date'], train['GWSA'],
          color=C_OBS, linewidth=1.6, label='Observed (GLDAS)', zorder=5)
 
-# Ridge
 ax1.plot(forecasts['date'], forecasts['GWSA_predicted_mm'],
          color=C_RIDGE, linewidth=1.6, linestyle='--',
          label=f'Ridge (R² = {RIDGE_R2:.3f})', zorder=4)
 
-# TNS (only where available)
-tns_valid = forecasts.dropna(subset=['TNS_predicted_mm'])
+tns_valid = forecasts.dropna(subset=['TNS_predicted_mm']) if 'TNS_predicted_mm' in forecasts.columns else pd.DataFrame()
 if len(tns_valid) > 0:
     ax1.plot(tns_valid['date'], tns_valid['TNS_predicted_mm'],
              color=C_TNS, linewidth=1.4, linestyle='-.',
              label=f'TNS (R² = {TNS_R2:.3f})', zorder=3)
 
-# Mean baseline
 ax1.axhline(train['GWSA'].mean(), color='gray', linewidth=0.7,
             linestyle=':', alpha=0.7, zorder=1,
             label=f'Mean ({train["GWSA"].mean():.1f} mm)')
 
-# Training end marker
 split_date = train['date'].max()
 ax1.axvline(split_date, color='black', linewidth=0.8,
             linestyle='--', alpha=0.7, zorder=1)
@@ -104,7 +101,7 @@ ax1.grid(True, alpha=0.25, linewidth=0.5)
 ax1.set_xlim(forecasts['date'].min(), forecasts['date'].max())
 
 # ============================================================
-# 4. PANEL B — SCATTER (OBSERVED VS PREDICTED)
+# 5. PANEL B — SCATTER (OBSERVED VS PREDICTED)
 # ============================================================
 merged = pd.merge(
     train[['date', 'GWSA']],
@@ -120,7 +117,6 @@ if len(merged) > 5:
                 edgecolor='white', linewidth=0.4, zorder=3,
                 label=f'Ridge (R²={RIDGE_R2:.3f})')
 
-    # TNS scatter only for rows where both exist
     merged_tns = merged.dropna(subset=['TNS_predicted_mm'])
     if len(merged_tns) > 5:
         obs_tns = merged_tns['GWSA'].values
@@ -154,7 +150,7 @@ ax2.grid(True, alpha=0.25, linewidth=0.5)
 ax2.set_aspect('equal', adjustable='box')
 
 # ============================================================
-# 5. PANEL C — MODEL COMPARISON
+# 6. PANEL C — MODEL COMPARISON
 # ============================================================
 models = ['Ridge', 'TNS']
 r2_values   = [RIDGE_R2, TNS_R2]
@@ -195,7 +191,7 @@ ax3.legend(lines1 + lines2, labels1 + labels2,
            loc='upper right', fontsize=7.5)
 
 # ============================================================
-# 6. SAVE
+# 7. SAVE
 # ============================================================
 out_png = 'data/kulfo_gwsa_publication.png'
 out_pdf = 'data/kulfo_gwsa_publication.pdf'
