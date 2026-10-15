@@ -7,9 +7,9 @@ Monthly groundwater storage anomaly (GWSA) prediction for the Kulfo watershed, E
 Latest predictions: [`data/kulfo_gwsa_forecasts.csv`](data/kulfo_gwsa_forecasts.csv)
 
 Columns:
-- `date` — month (YYYY-MM-01)
-- `GWSA_predicted_mm` — Ridge-predicted groundwater storage anomaly (mm)
-- `TNS_predicted_mm` — TNS-predicted groundwater storage anomaly (mm)
+- `date`: month (YYYY-MM-01)
+- `GWSA_predicted_mm` : Ridge-predicted groundwater storage anomaly (mm)
+- `TNS_predicted_mm` : TNS-predicted groundwater storage anomaly (mm)
 
 Publication figure:
 - [`data/kulfo_gwsa_publication.png`](data/kulfo_gwsa_publication.png) — 300 DPI raster
