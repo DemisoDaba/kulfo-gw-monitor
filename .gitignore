@@ -4,3 +4,4 @@ key_klfo/
 key_oneline.txt
 *.json
 .env
+data/kulfo_gwsa_publication.pdf
