@@ -38,12 +38,19 @@ Download directly: [data/kulfo_gwsa_forecasts.csv](https://raw.githubusercontent
 
 ```bash
 git clone https://github.com/DemisoDaba/kulfo-gw-monitor.git
+```
+```bash
 cd kulfo-gw-monitor
+```
+```bash
 pip install -r requirements.txt
+```
+```bash
 export EARTHENGINE_TOKEN="your-service-account-json-on-one-line"
 python scripts/predict.py
 python scripts/plot_publication.py
+```
 
 ## License
 
-MIT
+This project is licensed under the MIT License see the [LICENSE](LICENSE) file for details.
