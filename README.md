@@ -12,7 +12,7 @@ Columns:
 - `TNS_predicted_mm` : TNS-predicted groundwater storage anomaly (mm)
 
 Publication figure:
-- [`data/kulfo_gwsa_publication.png`](data/kulfo_gwsa_publication.png) — 300 DPI raster
+- [`data/kulfo_gwsa_publication.png`](data/kulfo_gwsa_publication.png) : 300 DPI raster
 
 ## How It Works
 
