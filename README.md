@@ -14,7 +14,7 @@ Columns:
 
 1. GitHub Actions runs on the 1st of every month at 06:00 UTC
 2. Fetches CHIRPS rainfall, ERA5 temperature/soil moisture, MODIS ET/NDVI from Google Earth Engine
-3. Runs a Ridge regression model (R² = 0.787) trained on 2018–2024 data
+3. Runs a Ridge regression model (R² = 0.890) trained on 2018–2024 data
 4. Commits the updated CSV back to this repo
 
 ## Use the Data

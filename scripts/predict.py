@@ -1,5 +1,6 @@
 """
-Monthly GWSA prediction for Kulfo watershed — fast bulk fetch, minimal output.
+Monthly GWSA prediction for Kulfo watershed.
+Auto-detects the most recent month across all predictors, fills gaps with means.
 """
 
 import os
@@ -33,7 +34,6 @@ credentials = ee.ServiceAccountCredentials(
 )
 ee.Initialize(credentials, project='gothic-doodad-356708')
 
-# ---- Restore both streams ----
 sys.stdout = _stdout
 sys.stderr = _stderr
 
@@ -50,18 +50,40 @@ train['date'] = pd.to_datetime(train['date'])
 train = train.sort_values('date').reset_index(drop=True)
 
 # ============================================================
-# 3. MONTH RANGE
+# 3. AUTO-DETECT MOST RECENT AVAILABLE MONTH
 # ============================================================
+kulfo = ee.FeatureCollection('projects/gothic-doodad-356708/assets/kulfo')
+geom = kulfo.geometry()
+
+def latest_available_month(collection, band_name):
+    """Return the last complete month available in the collection."""
+    latest = collection.select(band_name).limit(1, 'system:time_start', False).first()
+    ts = latest.get('system:time_start').getInfo()
+    end_date = pd.Timestamp(ts, unit='ms', tz='UTC').tz_localize(None)
+    # Go back one month to ensure the full month is covered
+    return (end_date.replace(day=1) - pd.DateOffset(months=1)).replace(day=1)
+
+chirps = ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY')
+era5   = ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY_AGGR')
+modis_et = ee.ImageCollection('MODIS/061/MOD16A2GF')
+modis_ndvi = ee.ImageCollection('MODIS/061/MOD13A2')
+
+candidates = [
+    latest_available_month(chirps, 'precipitation'),
+    latest_available_month(era5, 'temperature_2m'),
+    latest_available_month(modis_et, 'ET'),
+    latest_available_month(modis_ndvi, 'NDVI'),
+    latest_available_month(era5, 'volumetric_soil_water_layer_1'),
+]
+
 START = pd.Timestamp('2018-01-01')
-END   = pd.Timestamp('2026-08-01')
+END = max(candidates)   # ← use the most recent across all sources
+
 months = pd.date_range(START, END, freq='MS')
 
 # ============================================================
 # 4. BULK FETCH
 # ============================================================
-kulfo = ee.FeatureCollection('projects/gothic-doodad-356708/assets/kulfo')
-geom = kulfo.geometry()
-
 def bulk_fetch(collection, band_name, scale):
     n = len(months)
 
@@ -99,11 +121,11 @@ def build_df(collection, band_name, scale, out_col):
         out_col: [values.get(i, None) for i in range(len(months))]
     })
 
-rain_df = build_df(ee.ImageCollection('UCSB-CHG/CHIRPS/DAILY'), 'precipitation', 5000, 'rainfall')
-temp_df = build_df(ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY_AGGR'), 'temperature_2m', 11132, 'temperature_2m')
-et_df   = build_df(ee.ImageCollection('MODIS/061/MOD16A2GF'), 'ET', 500, 'ET')
-ndvi_df = build_df(ee.ImageCollection('MODIS/061/MOD13A2'), 'NDVI', 1000, 'NDVI')
-sm_df   = build_df(ee.ImageCollection('ECMWF/ERA5_LAND/MONTHLY_AGGR'), 'volumetric_soil_water_layer_1', 11132, 'volumetric_soil_water_layer_1')
+rain_df = build_df(chirps, 'precipitation', 5000, 'rainfall')
+temp_df = build_df(era5, 'temperature_2m', 11132, 'temperature_2m')
+et_df   = build_df(modis_et, 'ET', 500, 'ET')
+ndvi_df = build_df(modis_ndvi, 'NDVI', 1000, 'NDVI')
+sm_df   = build_df(era5, 'volumetric_soil_water_layer_1', 11132, 'volumetric_soil_water_layer_1')
 
 env = rain_df.merge(temp_df, on='date') \
              .merge(et_df, on='date') \
@@ -111,16 +133,21 @@ env = rain_df.merge(temp_df, on='date') \
              .merge(sm_df, on='date')
 
 # ============================================================
-# 5. BUILD FEATURE TABLE
+# 5. BUILD FEATURE TABLE (mean-fill for missing predictors)
 # ============================================================
 gwsa_history = train[['date', 'GWSA']].copy()
 rows = []
 
+predictor_cols = ['rainfall', 'temperature_2m', 'ET', 'NDVI', 'volumetric_soil_water_layer_1']
+col_means = {c: env[c].mean() for c in predictor_cols}
+
 for _, row in env.iterrows():
     d = row['date']
 
-    if any(pd.isna(row[c]) for c in ['rainfall', 'temperature_2m', 'ET', 'NDVI', 'volumetric_soil_water_layer_1']):
-        continue
+    # Fill missing predictors with column means
+    for c in predictor_cols:
+        if pd.isna(row[c]):
+            row[c] = col_means[c]
 
     gwsa_past = gwsa_history[gwsa_history['date'] < d].sort_values('date').tail(3)
     if len(gwsa_past) < 3:
@@ -131,16 +158,13 @@ for _, row in env.iterrows():
     GWSA_lag3 = gwsa_past.iloc[-3]['GWSA']
 
     prev = env[env['date'] < d].sort_values('date')
-    rain_lag1 = prev.iloc[-1]['rainfall'] if len(prev) >= 1 and pd.notna(prev.iloc[-1]['rainfall']) else np.nan
-    rain_lag2 = prev.iloc[-2]['rainfall'] if len(prev) >= 2 and pd.notna(prev.iloc[-2]['rainfall']) else np.nan
-    rain_lag3 = prev.iloc[-3]['rainfall'] if len(prev) >= 3 and pd.notna(prev.iloc[-3]['rainfall']) else np.nan
-    ET_lag1   = prev.iloc[-1]['ET'] if len(prev) >= 1 and pd.notna(prev.iloc[-1]['ET']) else np.nan
-    ET_lag2   = prev.iloc[-2]['ET'] if len(prev) >= 2 and pd.notna(prev.iloc[-2]['ET']) else np.nan
-    NDVI_lag1 = prev.iloc[-1]['NDVI'] if len(prev) >= 1 and pd.notna(prev.iloc[-1]['NDVI']) else np.nan
-    SM_lag1   = prev.iloc[-1]['volumetric_soil_water_layer_1'] if len(prev) >= 1 and pd.notna(prev.iloc[-1]['volumetric_soil_water_layer_1']) else np.nan
-
-    if any(pd.isna(v) for v in [rain_lag1, rain_lag2, rain_lag3, ET_lag1, ET_lag2, NDVI_lag1, SM_lag1]):
-        continue
+    rain_lag1 = prev.iloc[-1]['rainfall'] if len(prev) >= 1 and pd.notna(prev.iloc[-1]['rainfall']) else col_means['rainfall']
+    rain_lag2 = prev.iloc[-2]['rainfall'] if len(prev) >= 2 and pd.notna(prev.iloc[-2]['rainfall']) else col_means['rainfall']
+    rain_lag3 = prev.iloc[-3]['rainfall'] if len(prev) >= 3 and pd.notna(prev.iloc[-3]['rainfall']) else col_means['rainfall']
+    ET_lag1   = prev.iloc[-1]['ET'] if len(prev) >= 1 and pd.notna(prev.iloc[-1]['ET']) else col_means['ET']
+    ET_lag2   = prev.iloc[-2]['ET'] if len(prev) >= 2 and pd.notna(prev.iloc[-2]['ET']) else col_means['ET']
+    NDVI_lag1 = prev.iloc[-1]['NDVI'] if len(prev) >= 1 and pd.notna(prev.iloc[-1]['NDVI']) else col_means['NDVI']
+    SM_lag1   = prev.iloc[-1]['volumetric_soil_water_layer_1'] if len(prev) >= 1 and pd.notna(prev.iloc[-1]['volumetric_soil_water_layer_1']) else col_means['volumetric_soil_water_layer_1']
 
     month_num = d.month
     rows.append({
